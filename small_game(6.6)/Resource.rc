@@ -1,0 +1,27 @@
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#include		<resource.h>
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#define	ICO_MAIN		100
+#define	IDC_MAIN		100
+#define	IDC_MOVE		101
+
+#define IDB_BACK1	100
+#define IDB_BACK2	103
+#define IDB_BACK3	106
+#define IDB_BACK4	109
+#define IDB_BACK5	112
+
+#define IDB_END		124
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ICO_MAIN	ICON		"Main.ico"
+IDC_MAIN	CURSOR		"Main.cur"
+IDC_MOVE	CURSOR		"Move.cur"
+
+IDB_BACK1	BITMAP		"Back1.bmp"
+IDB_BACK2	BITMAP		"Back2.bmp"
+IDB_BACK3	BITMAP		"Back3.bmp"
+IDB_BACK4	BITMAP		"Back4.bmp"
+IDB_BACK5	BITMAP		"Back5.bmp"
+
+IDB_END		BITMAP		"end.bmp"
