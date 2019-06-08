@@ -529,6 +529,16 @@ _CreateFrontPic	proc
 
 _CreateFrontPic	endp
 ;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+_ClearBackBlock proc
+	mov esi,offset blockListTemp
+	mov edi,offset blockList
+	mov ecx,BLOCK_NUM
+	rep movsb
+	ret
+_ClearBackBlock endp
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
 _CreateBackGround	proc
 			local	@hDc;,@hBmpBack
 			local	idx,posX,posY,posX_,posY_
@@ -1332,14 +1342,25 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 				xor	eax,eax
 				ret
 			.elseif	eax == VK_R
-				;temp
-				mov isEnd,1
-				mov dwNowBack,IDB_END
-				invoke	KillTimer,hWinMain,ID_TIMER
-				invoke	_CreateBackGround
-				invoke	_CreateFrontPic
-				invoke	InvalidateRect,hWnd,NULL,FALSE
-				;tempend
+				.if isEnd == 1
+					mov isEnd,0
+					mov dwNowBack,IDB_BACK1
+					invoke	SetTimer,hWinMain,ID_TIMER,20,NULL
+					invoke _NewTe
+					invoke	_CreateBackGround
+					invoke	_CreateFrontPic
+					invoke	InvalidateRect,hWnd,NULL,FALSE
+				.else
+					;temp
+					mov isEnd,1
+					mov dwNowBack,IDB_END
+					invoke	KillTimer,hWinMain,ID_TIMER
+					invoke	_CreateBackGround
+					invoke	_CreateFrontPic
+					invoke	InvalidateRect,hWnd,NULL,FALSE
+					invoke _ClearBackBlock
+					;tempend
+				.endif
 			.elseif	eax == VK_C
 				add dwNowBack,3
 				.if dwNowBack == IDB_BACK5+3
