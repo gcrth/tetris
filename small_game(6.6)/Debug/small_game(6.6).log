@@ -1,0 +1,8 @@
+﻿C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\VC\VCTargets\Microsoft.CppBuild.targets(391,5): warning MSB8028: 中间目录(Debug\)包含从另一个项目(small_game(6.6).vcxproj)共享的文件。   这会导致错误的清除和重新生成行为。
+  Assembling sou.asm...
+sou.asm(604): warning A6004: procedure argument or local not referenced : idx
+sou.asm(3165): warning A6004: procedure argument or local not referenced : posX
+sou.asm(3165): warning A6004: procedure argument or local not referenced : posY
+sou.asm(3165): warning A6004: procedure argument or local not referenced : hitflag3
+sou.asm(3165): warning A6004: procedure argument or local not referenced : hitflag4
+  small_game(6.6).vcxproj -> C:\Users\gcrth\Desktop\small_game_final_test\Debug\small_game.exe

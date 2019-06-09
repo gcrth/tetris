@@ -14,6 +14,10 @@ includelib	msvcrt.lib
 include		include/Gdi32.inc
 includelib	Gdi32.lib
 
+
+includelib  winmm.lib
+include		include/winmm.inc
+
 ;sprintf		proto	C :dword, :dword, :vararg
 ;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Equ 等值定义
@@ -29,6 +33,9 @@ IDB_BACK4	equ	109
 IDB_BACK5	equ	112
 
 IDB_END		equ 124
+
+IDR_WAVE_BACK	equ	1000
+IDR_WAVE_END	equ	1001
 
 ID_TIMER	equ	1
 IDM_EXIT	equ	104
@@ -74,8 +81,19 @@ dwNowBack	dd		?
 
 isMoving	db		1
 isEnd		db		0
+isKeyOn		db 		0
+canChangeTe	db		1
 
-;lastTime	SYSTEMTIME <>
+;随机道具
+sur_show	dd      ? ;出现
+sur_hit     dd      ? ;撞击
+surX	    dd      ? ;道具坐标
+surY		dd      ?
+surX_       dd      ?
+surY_       dd      ?
+minY		dd      20 ;当前最高Y值
+surBlock    dd      ?
+
 
 blockList		db 1000 DUP(0)
 blockListTemp	db 1000 DUP(0)
@@ -83,10 +101,20 @@ blockListTemp	db 1000 DUP(0)
 te		Tetris <>
 error	dd ?
 hBmpBackMap dd ?
-		.const
 
+szYourScore	byte	'Score : ',0
+szScore		byte	1024 DUP(?)
+szFormat	db		'%d',0
+isMoved		db		0
+score		dd		0
+coeff		dd		20
+
+		.const
 szClassName	db	'Tetris',0
 szMenuExit	db	'退出(&X)...',0
+
+szSound	db	'background.wav',0
+szGameOver db 'GameOver.wav',0
 
 ;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; 代码段
@@ -96,11 +124,41 @@ szMenuExit	db	'退出(&X)...',0
 _CreateFrontPic	proc
 		;local	@stTime:SYSTEMTIME
 		local	idx,posX,posY,posX_,posY_
+		local	@FontInfo:LOGFONT
+		local	szScorelen
+		local	ScoreNumLen
 		pushad
 		invoke	BitBlt,hDcClock,0,0,WIN_SIZE_X,WIN_SIZE_Y,hDcBack,0,0,SRCCOPY
-		.if isEnd
+;********************************************************************
+; 画时钟指针
+;********************************************************************
 
+		.if isEnd == 1
+			;展示分数
+			invoke crt_strlen,offset szYourScore
+			mov	szScorelen,eax
+			invoke wsprintf,offset szScore,offset szFormat,score
+			invoke crt_strlen,offset szScore
+			mov	ScoreNumLen,eax
+			mov @FontInfo.lfHeight,	45	;     {赋值 0, 系统自动给一个值}
+			mov @FontInfo.lfWidth , 30		;      {赋值 0, 系统自动给一个值}
+			mov @FontInfo.lfEscapement , 0	; {无角度}
+			mov @FontInfo.lfWeight , 500		;   {中等加粗}
+			mov @FontInfo.lfItalic , 0		;     {非斜体}
+			mov @FontInfo.lfUnderline , 0	;  {无下划线}
+			mov @FontInfo.lfStrikeOut , 0	;  {无删除线}
+			;mov @FontInfo.lfFaceName ,offset szFaceName 
+			invoke CreateFontIndirect,addr @FontInfo
+			invoke SelectObject, hDcClock, eax
+
+			invoke DeleteObject,eax
+			invoke SetBkMode, hDcClock,TRANSPARENT
+			invoke TextOut,hDcClock,100,50,offset szYourScore,szScorelen
+			invoke TextOut,hDcClock,200,120,offset szScore,ScoreNumLen
+			invoke ReleaseDC,hWinMain,hDcClock
 		.else
+
+
 ;********************************************************************
 			invoke  CreateSolidBrush,76EE00h
 			invoke	SelectObject,hDcClock,eax
@@ -516,6 +574,22 @@ _CreateFrontPic	proc
 				invoke Rectangle,hDcClock,posX,posY,posX_,posY_		
 			.endif
 
+			.if sur_show == 1
+				;随机道具
+				invoke	CreateSolidBrush,0DC143Ch
+				invoke	SelectObject,hDcBack,eax
+				invoke	DeleteObject,eax
+				invoke	CreatePen,PS_SOLID,3,0
+				invoke	SelectObject,hDcBack,eax
+				invoke	DeleteObject,eax
+				invoke	Rectangle,hDcBack,surX,surY,surX_,surY_
+				mov eax,surBlock
+				mov blockList[eax],2
+			.endif
+
+			;invoke	_DeleteBackGround
+			;invoke	_CreateBackGround
+
 ;********************************************************************
 			invoke	GetStockObject,NULL_PEN
 			invoke	SelectObject,hDcClock,eax
@@ -537,7 +611,6 @@ _ClearBackBlock proc
 	ret
 _ClearBackBlock endp
 ;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 
 _CreateBackGround	proc
 			local	@hDc;,@hBmpBack
@@ -579,45 +652,45 @@ _CreateBackGround	proc
 ; 画底层格子
 ;********************************************************************
 		.if isEnd == 0
-		invoke  CreateSolidBrush,76EE00h
-		invoke	SelectObject,hDcBack,eax
-		invoke	DeleteObject,eax
-		invoke	CreatePen,PS_SOLID,3,0
-		invoke	SelectObject,hDcBack,eax
-		invoke	DeleteObject,eax
-		
-		;mov blockList[1],1
-		;mov blockList[2],1
+			invoke  CreateSolidBrush,76EE00h
+			invoke	SelectObject,hDcBack,eax
+			invoke	DeleteObject,eax
+			invoke	CreatePen,PS_SOLID,3,0
+			invoke	SelectObject,hDcBack,eax
+			invoke	DeleteObject,eax
+			
+			;mov blockList[1],1
+			;mov blockList[2],1
 
-		mov idx,0
-		.while idx<BLOCK_NUM_X*BLOCK_NUM_Y
-			mov eax,idx
-			.if blockList[eax]==1
-				xor edx,edx
-				mov ebx,BLOCK_NUM_X
-				div ebx
+			mov idx,0
+			.while idx<BLOCK_NUM_X*BLOCK_NUM_Y
+				mov eax,idx
+				.if blockList[eax]==1
+					xor edx,edx
+					mov ebx,BLOCK_NUM_X
+					div ebx
 
-				mov ebx,BLOCK_SIZE
-				push edx
-				inc eax
-				mul ebx
-				mov posY,eax
-				sub eax,ebx
-				mov posY_,eax
+					mov ebx,BLOCK_SIZE
+					push edx
+					inc eax
+					mul ebx
+					mov posY,eax
+					sub eax,ebx
+					mov posY_,eax
 
-				pop eax
-				mul ebx
-				mov posX,eax
-				add eax,ebx
-				mov posX_,eax
-				invoke	Rectangle,hDcBack,posX,posY,posX_,posY_
-			.endif	
-			inc idx
-		.endw	
-		
+					pop eax
+					mul ebx
+					mov posX,eax
+					add eax,ebx
+					mov posX_,eax
+					invoke	Rectangle,hDcBack,posX,posY,posX_,posY_
+				.endif	
+				inc idx
+			.endw	
+
+
 		.endif
 		invoke	DeleteObject,hBmpBackMap
-
 		ret
 
 _CreateBackGround	endp
@@ -647,46 +720,135 @@ _NewTe		proc
 	xor edx,edx
 	div ebx
 
-	.if edx == 0
+	mov isMoved, 0
+
+	.if isKeyOn == 1
 		mov te.kind,0
 		mov te.direction,0
 		mov te.centerPosX,120
 		mov te.centerPosY,30
 		mov te.canChange,1
-	.elseif edx == 1
-		mov te.kind,1
-		mov te.direction,0
-		mov te.centerPosX,270
-		mov te.centerPosY,30
-		mov te.canChange,1
-	.elseif edx == 2
-		mov te.kind,2
-		mov te.direction,0
-		mov te.centerPosX,120
-		mov te.centerPosY,30
-		mov te.canChange,1
-	.elseif edx == 3
-		mov te.kind,3
-		mov te.direction,0
-		mov te.centerPosX,270
-		mov te.centerPosY,30
-		mov te.canChange,1
-	.elseif edx == 4
-		mov te.kind,4
-		mov te.direction,0
-		mov te.centerPosX,120
-		mov te.centerPosY,30
-		mov te.canChange,1
-	.endif	
+	.else
+		.if edx == 0
+			mov te.kind,0
+			mov te.direction,0
+			mov te.centerPosX,120
+			mov te.centerPosY,30
+			mov te.canChange,1
+		.elseif edx == 1
+			mov te.kind,1
+			mov te.direction,0
+			mov te.centerPosX,270
+			mov te.centerPosY,30
+			mov te.canChange,1
+		.elseif edx == 2
+			mov te.kind,2
+			mov te.direction,0
+			mov te.centerPosX,120
+			mov te.centerPosY,30
+			mov te.canChange,1
+		.elseif edx == 3
+			mov te.kind,3
+			mov te.direction,0
+			mov te.centerPosX,270
+			mov te.centerPosY,30
+			mov te.canChange,1
+		.elseif edx == 4
+			mov te.kind,4
+			mov te.direction,0
+			mov te.centerPosX,120
+			mov te.centerPosY,30
+			mov te.canChange,1
+		.endif	
+	.endif
+	;随机道具
+	invoke	GetLocalTime,addr @stTime
+	movzx	eax,@stTime.wSecond
+	invoke  crt_srand,eax
+	invoke  crt_rand
+	mov randNum,eax
+
+	mov ebx,1
+	.if score <=20
+		inc ebx
+	.elseif score <=50
+		inc ebx
+		inc ebx
+	.else
+		inc ebx
+		inc ebx
+		inc ebx
+	.endif
+
+	mov eax,randNum
+	xor edx,edx
+	div ebx
+	.if edx == 0
+		mov eax,minY
+		xor edx,edx
+		mov ebx,15
+		div ebx
+		mov minY,eax
+		.if minY >= 4
+			;随机Y
+			invoke	GetLocalTime,addr @stTime
+			movzx	eax,@stTime.wSecond
+			invoke  crt_srand,eax
+			invoke  crt_rand
+			mov randNum,eax
+
+			mov ebx,minY
+			mov eax,randNum
+			xor edx,edx
+			div ebx
+
+			.if edx >= 4
+				mov surBlock,edx
+
+				mov eax,edx
+				xor edx,edx
+				mov ebx,BLOCK_SIZE
+				mul ebx
+				mov surY,eax
+				add eax,BLOCK_SIZE
+				mov surY_,eax
+				;Block值Y
+				mov eax,surBlock
+				xor edx,edx
+				mov ebx,15
+				mul ebx
+				mov surBlock,eax
+
+				;随机X
+				invoke	GetLocalTime,addr @stTime
+				movzx	eax,@stTime.wSecond
+				invoke  crt_srand,eax
+				invoke  crt_rand
+				mov randNum,eax
+				mov ebx,15
+				mov eax,randNum
+				xor edx,edx
+				div ebx
+				add surBlock,edx
+
+				mov eax,edx
+				xor edx,edx
+				mov ebx,BLOCK_SIZE
+				mul ebx
+				mov surX,eax
+				add eax,BLOCK_SIZE
+				mov surX_,eax
+				mov sur_show,1
+			.endif
+		.endif
+	.endif
 	ret
 _NewTe		endp	
 ;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 _Init		proc
 		;local	@hBmpBack,@hBmpCircle
-;********************************************************************
-; for debug
-;********************************************************************
-		invoke _NewTe
+	
+	invoke _NewTe
 
 ;********************************************************************
 ; 初始化菜单
@@ -705,7 +867,7 @@ _Init		proc
 
 		
 		
-		invoke	SetTimer,hWinMain,ID_TIMER,20,NULL
+		;invoke	SetTimer,hWinMain,ID_TIMER,20,NULL
 		invoke	_CreateBackGround
 		invoke	_CreateFrontPic
 		ret
@@ -726,16 +888,21 @@ _Quit		endp
 _Down		proc
 	local	blockNo
 	local	hitFlag1,hitFlag2,hitFlag3,hitFlag4
+	local	surhit1,surhit2,surhit3,surhit4,testflag
 	local	newTe
 	local	idx,flag
+
+	local   dltRowNum
+
+
 	mov newTe,0
+	mov sur_hit,0
 
 	mov eax, te.centerPosY
 	xor edx,edx
 	mov ebx,BLOCK_SIZE
 	div ebx
 	mov blockNo, eax
-	
 	.if edx == 0
 		;mov eax,edx
 		xor edx,edx
@@ -749,6 +916,7 @@ _Down		proc
 		add blockNo,eax
 				
 		.if te.kind == 0
+			mov surhit1,0
 			mov eax,blockNo
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
@@ -757,26 +925,42 @@ _Down		proc
 				mov hitFlag1,1
 			.else
 				mov hitFlag1,0
-			.endif	
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 
 			mov hitFlag2,0
+			mov surhit2,0
 			mov eax,blockNo
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
-			inc eax
-			.if blockList[eax] == 1 || eax >= BLOCK_NUM
-				mov hitFlag2,1
+			.if blockList[eax] == 2
+				mov surhit2,1
 			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
+			inc eax
+			.if blockList[eax] == 1 || eax >= BLOCK_NUM
+				mov hitFlag2,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
 			.endif
 
 			.if te.direction == 0
@@ -793,12 +977,18 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					.if hitFlag2 == 1
 						mov te.canChange,0
 					.else
 						mov te.canChange,1
 					.endif	
-				.endif	
+				.endif
+				.if surhit1 == 1
+					mov sur_hit,1
+				.endif
 			.else
 				.if hitFlag2 == 1
 					mov eax,blockNo
@@ -813,16 +1003,23 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					.if hitFlag1 == 1
 						mov te.canChange,0
 					.else
 						mov te.canChange,1
 					.endif	
-				.endif	
+				.endif
+				.if surhit2 == 1
+					mov sur_hit,1
+				.endif
 			.endif	
 		;形状1
 		.elseif te.kind == 1
 			mov hitFlag1,0
+			mov surhit1,0
 			mov eax,blockNo
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
@@ -830,50 +1027,80 @@ _Down		proc
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
-			inc eax
-			.if blockList[eax] == 1 || eax >= BLOCK_NUM
-				mov hitFlag1,1
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
+			inc eax
+			.if blockList[eax] == 1 || eax >= BLOCK_NUM
+				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 
 			mov hitFlag2,0
+			mov surhit2,0
 			mov eax,blockNo
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
 			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
 			.endif
 
 			mov hitFlag3,0
+			mov surhit3,0
 			mov eax,blockNo
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
 			.endif
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
+			.endif
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
 			inc eax
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
 			.endif
 
 			mov hitFlag4,0
+			mov surhit4,0
 			mov eax,blockNo
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
@@ -881,13 +1108,22 @@ _Down		proc
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag4,1
 			.endif
-			inc eax
-			.if blockList[eax] == 1 || eax >= BLOCK_NUM
-				mov hitFlag4,1
+			.if blockList[eax] == 2
+				mov surhit4,1
 			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag4,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit4,1
+			.endif
+			inc eax
+			.if blockList[eax] == 1 || eax >= BLOCK_NUM
+				mov hitFlag4,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit4,1
 			.endif
 
 			.if te.direction == 0
@@ -907,10 +1143,16 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag2 == 1
 						mov te.canChange,0
 					.endif		
+				.endif
+				.if surhit1 == 1
+					mov sur_hit,1
 				.endif
 			.elseif te.direction == 1
 				.if hitFlag2 == 1
@@ -931,10 +1173,16 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag3 == 1
 						mov te.canChange,0
 					.endif
+				.endif
+				.if surhit2 == 1
+					mov sur_hit,1
 				.endif
 			.elseif te.direction == 2
 				.if hitFlag3 == 1
@@ -953,10 +1201,16 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag4 == 1
 						mov te.canChange,0
 					.endif
+				.endif
+				.if surhit3 == 1
+					mov sur_hit,1
 				.endif
 			.elseif te.direction == 3
 				.if hitFlag4 == 1
@@ -975,45 +1229,71 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag1 == 1
 						mov te.canChange,0
 					.endif
 				.endif
+				.if surhit4 == 1
+					mov sur_hit,1
+				.endif
 			.endif
 		;形状2
 		.elseif te.kind == 2
 			mov hitFlag1,0
+			mov surhit1,0
 			mov eax,blockNo 	
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 			add eax,BLOCK_NUM_X
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 			mov hitFlag2,0
+			mov surhit2,0
 			mov eax,blockNo 
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
 			.endif
 
 			.if te.direction == 0
@@ -1033,10 +1313,16 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag2 == 1
 						mov te.canChange,0
 					.endif
+				.endif
+				.if surhit1 == 1
+					mov sur_hit,1
 				.endif
 			.elseif te.direction == 1
 				.if hitFlag2 == 1
@@ -1055,76 +1341,123 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag1 == 1
 						mov te.canChange,0
 					.endif
 				.endif
+				.if surhit2 == 1
+					mov sur_hit,1
+				.endif
 			.endif
 		;形状3
 		.elseif te.kind == 3
 			mov hitFlag1,0
+			mov surhit1,0
 			mov eax,blockNo 	
 			sub eax,1
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
-			inc eax
-			.if blockList[eax] == 1 || eax >= BLOCK_NUM
-				mov hitFlag1,1
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
+			inc eax
+			.if blockList[eax] == 1 || eax >= BLOCK_NUM
+				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 			mov hitFlag2,0
+			mov surhit2,0
 			mov eax,blockNo 	
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			sub eax,1
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag2,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit2,1
+			.endif
 			mov hitFlag3,0
+			mov surhit3,0
 			mov eax,blockNo 
 			sub eax,1
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
+			.endif
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
 			.endif
 			inc eax
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
 			.endif
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag3,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit3,1
+			.endif
+
 			mov hitFlag4,0
+			mov surhit4,0
 			mov eax,blockNo 
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag4,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit4,1
+			.endif
 			inc eax
 			add eax,BLOCK_NUM_X
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag4,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit4,1
 			.endif
 			.if te.direction == 0
 				.if hitFlag1 == 1
@@ -1145,11 +1478,17 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag2 == 1
 						mov te.canChange,0
 					.endif		
-				.endif	
+				.endif
+				.if surhit1 == 1
+					mov sur_hit,1
+				.endif
 			.elseif te.direction == 1
 				.if hitFlag2 == 1
 					mov eax,blockNo
@@ -1167,10 +1506,16 @@ _Down		proc
 					mov newTe,1
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag3 == 1
 						mov te.canChange,0
 					.endif
+				.endif
+				.if surhit2 == 1
+					mov sur_hit,1
 				.endif
 			.elseif te.direction == 2
 				.if hitFlag3 == 1
@@ -1191,11 +1536,17 @@ _Down		proc
 					mov newTe,1					
 				.else
 					add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag4 ==1
 						mov te.canChange,0
 					.endif 
-				.endif				
+				.endif		
+				.if surhit3 == 1
+					mov sur_hit,1
+				.endif
 			.elseif te.direction == 3
 				.if hitFlag4 == 1
 					mov eax,blockNo
@@ -1215,16 +1566,22 @@ _Down		proc
 
 				.else
 					add te.centerPosY,DOWN_SPEED
-					;add te.centerPosY,DOWN_SPEED
+
+					mov isMoved, 1
+
 					mov te.canChange,1
 					.if hitFlag1 == 1
 						mov te.canChange,0
 					.endif
 				.endif
+				.if surhit4 == 1
+					mov sur_hit,1
+				.endif
 			.endif
 		;形状4
 		.elseif te.kind == 4
 			mov hitFlag1,0
+			mov surhit1,0
 			mov eax,blockNo 
 			add eax,BLOCK_NUM_X
 			add eax,BLOCK_NUM_X
@@ -1232,15 +1589,24 @@ _Down		proc
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif		
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 			inc eax
 			inc eax
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
 			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
+			.endif
 			add eax,BLOCK_NUM_X
 			sub eax,1
 			.if blockList[eax] == 1 || eax >= BLOCK_NUM
 				mov hitFlag1,1
+			.endif
+			.if blockList[eax] == 2
+				mov surhit1,1
 			.endif
 			.if hitFlag1 == 1
 				mov eax,blockNo
@@ -1258,13 +1624,41 @@ _Down		proc
 				mov newTe,1
 			.else
 				add te.centerPosY,DOWN_SPEED
+
+				mov isMoved, 1
+
 			.endif	
+			.if surhit1 == 1
+				mov sur_hit,1
+			.endif
 		.endif
 	.else	
 		add te.centerPosY,DOWN_SPEED
+
+		mov isMoved, 1
+
 	.endif	
 
 	.if newTe == 1
+		mov canChangeTe,1
+
+		.if isMoved == 0
+			mov isEnd,1
+			invoke PlaySound, IDR_WAVE_END,hInstance,SND_RESOURCE or SND_ASYNC  or SND_LOOP
+			mov dwNowBack,IDB_END
+			invoke	KillTimer,hWinMain,ID_TIMER
+			invoke	_CreateBackGround
+			invoke	_CreateFrontPic
+			invoke	InvalidateRect,hWinMain,NULL,FALSE
+			invoke _ClearBackBlock
+			ret
+		.endif
+		mov dltRowNum, 0
+
+		mov eax,surBlock
+		mov blockList[eax],0
+		mov sur_show,0
+		mov testflag,0
 		mov idx,0
 		.while idx< BLOCK_NUM_Y
 			mov flag,0
@@ -1275,11 +1669,20 @@ _Down		proc
 			.while ecx<BLOCK_NUM_X
 				.if blockList[eax][ecx] == 0
 					mov flag,1
-				.endif	
+				.endif
+				.if testflag == 0
+					.if blockList[eax][ecx] == 1
+						mov testflag,1
+						mov minY,eax
+					.endif
+				.endif
 				inc ecx
 			.endw
 			.if flag==0
 				;<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+				inc dltRowNum
+
 				mov ecx,eax
 				std
 				lea edi, blockList[eax+BLOCK_NUM_X-1]
@@ -1294,11 +1697,54 @@ _Down		proc
 			.endif	
 			inc idx
 		.endw
+
+		.if dltRowNum > 0
+			mov eax, dltRowNum
+			mul coeff
+			sub eax, 10
+			add score, eax
+		.endif
+	
 		invoke	_DeleteBackGround
 		invoke	_CreateBackGround
 		invoke _NewTe
 	.endif	
 
+
+
+	mov dltRowNum, 0
+
+	;随机道具
+	.if sur_hit == 1
+
+		inc dltRowNum
+
+		mov eax,surBlock
+		mov blockList[eax],0		
+		mov eax,285
+		mov ecx,eax
+		std
+		lea edi, blockList[eax+BLOCK_NUM_X-1]
+		lea esi, blockList[eax-1]
+		rep movsb
+		cld
+		mov ecx,BLOCK_NUM_X
+		lea edi,blockList
+		lea esi,blockListTemp
+		rep movsb
+		mov sur_show,0
+		invoke	_DeleteBackGround
+		invoke	_CreateBackGround
+		invoke _NewTe
+	.endif
+
+	.if dltRowNum > 0
+		mov eax, dltRowNum
+		mul coeff
+		sub eax, 10
+		add score, eax
+	.endif
+	
 	;add te.centerPosY,DOWN_SPEED
 	ret
 _Down		endp	
@@ -1333,6 +1779,9 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 		.elseif	eax ==	WM_CREATE
 			mov	eax,hWnd
 			mov	hWinMain,eax
+
+			invoke PlaySound,IDR_WAVE_BACK,hInstance, SND_RESOURCE or SND_ASYNC  or SND_LOOP
+
 			invoke	_Init
 ;********************************************************************
 		.elseif	eax == WM_KEYDOWN
@@ -1341,8 +1790,21 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 				call	_Quit
 				xor	eax,eax
 				ret
+			.elseif eax == VK_K
+				.if isKeyOn == 0
+					mov isKeyOn,1
+				.else
+					mov isKeyOn,0
+				.endif
+			.elseif eax == VK_T
+				.if canChangeTe == 1
+					mov canChangeTe,0
+					invoke _NewTe
+				.endif
 			.elseif	eax == VK_R
 				.if isEnd == 1
+					mov score,0
+					invoke PlaySound, IDR_WAVE_BACK,hInstance,SND_RESOURCE or SND_ASYNC  or SND_LOOP
 					mov isEnd,0
 					mov dwNowBack,IDB_BACK1
 					invoke	SetTimer,hWinMain,ID_TIMER,20,NULL
@@ -1350,16 +1812,6 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 					invoke	_CreateBackGround
 					invoke	_CreateFrontPic
 					invoke	InvalidateRect,hWnd,NULL,FALSE
-				.else
-					;temp
-					mov isEnd,1
-					mov dwNowBack,IDB_END
-					invoke	KillTimer,hWinMain,ID_TIMER
-					invoke	_CreateBackGround
-					invoke	_CreateFrontPic
-					invoke	InvalidateRect,hWnd,NULL,FALSE
-					invoke _ClearBackBlock
-					;tempend
 				.endif
 			.elseif	eax == VK_C
 				add dwNowBack,3
@@ -1729,7 +2181,7 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 					.if te.direction == 0
 						.if te.centerPosX >= 2*BLOCK_SIZE
 							mov eax,blockNo
-							sub eax,BLOCK_SIZE
+							sub eax,BLOCK_NUM_X
 							sub eax,2
 							.if blockList[eax] == 1
 								mov hitflag1,1
@@ -1865,7 +2317,15 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 							.if blockList[eax] == 1
 								mov hitflag2,1
 							.endif
-							sub te.centerPosX,BLOCK_SIZE
+							.if flag == 0
+								.if hitflag1 == 0
+									sub te.centerPosX,BLOCK_SIZE
+								.endif
+							.else
+								.if hitflag1 == 0 && hitflag2 == 0
+									sub te.centerPosX,BLOCK_SIZE
+								.endif
+							.endif
 						.endif
 					.endif
 				;形状2
@@ -2121,7 +2581,8 @@ _ProcWinMain	proc	uses ebx edi esi hWnd,uMsg,wParam,lParam
 						.endif
 					.endif
 				.endif			
-			.elseif	eax == VK_S			
+			.elseif	eax == VK_S	
+				invoke	SetTimer,hWinMain,ID_TIMER,20,NULL		
 			;D键	
 			.elseif	eax == VK_D
 				mov eax,te.centerPosY
